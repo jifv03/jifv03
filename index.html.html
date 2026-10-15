@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>¡Atrapa las Propuestas con Paco Bravo!</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            background: #f0f4f8; 
+            font-family: 'Arial', sans-serif; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            height: 600px;
+            background: linear-gradient(to bottom, #1A365D, #2B6CB0);
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        #canvas { background: transparent; display: block; }
+        #score-board {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+            z-index: 10;
+        }
+        #controls {
+            display: flex;
+            width: 100%;
+            max-width: 400px;
+            margin-top: 15px;
+            gap: 10px;
+            padding: 0 10px;
+        }
+        .btn {
+            flex: 1;
+            padding: 15px;
+            font-size: 18px;
+            font-weight: bold;
+            color: white;
+            background: #004690;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px #002d62;
+        }
+        .btn:active {
+            box-shadow: 0 0px #002d62;
+            transform: translateY(4px);
+        }
+        #game-over-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 70, 144, 0.95);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 20px;
+            z-index: 20;
+        }
+        input[type="text"] {
+            padding: 10px;
+            font-size: 16px;
+            border-radius: 6px;
+            border: none;
+            margin-bottom: 15px;
+            text-align: center;
+            width: 80%;
+            max-width: 250px;
+        }
+        #start-btn {
+            margin-top: 10px;
+            padding: 12px 30px;
+            font-size: 18px;
+            background: #fff;
+            color: #004690;
+            border: none;
+            border-radius: 25px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px rgba(0,0,0,0.2);
+        }
+        #start-btn:active {
+            transform: translateY(2px);
+        }
+        #leaderboard {
+            margin-top: 15px;
+            font-size: 13px;
+            background: rgba(0,0,0,0.25);
+            padding: 8px;
+            border-radius: 8px;
+            width: 85%;
+            max-height: 110px;
+            overflow-y: auto;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="score-board">Puntos: <span id="score">0</span></div>
+    <canvas id="canvas" width="400" height="600"></canvas>
+    
+    <div id="game-over-screen">
+        <h1 id="go-title" style="font-size: 22px; margin-bottom: 8px;">¡Atrapa las Propuestas con Paco Bravo!</h1>
+        <p id="go-msg" style="margin-bottom: 12px; font-size: 14px;">Ingresa tu nombre y ayuda a Paco a recolectar las propuestas ciudadanas sin dejar caer ninguna.</p>
+        <input type="text" id="player-name" placeholder="Tu Nombre o Apodo" maxlength="15">
+        <button id="start-btn" type="button">¡Comenzar!</button>
+        <div id="leaderboard">
+            <strong>Mejores Récords:</strong>
+            <div id="high-scores">Cargando...</div>
+        </div>
+    </div>
+</div>
+
+<div id="controls">
+    <button class="btn" id="left-btn">◀ Izquierda</button>
+    <button class="btn" id="right-btn">Derecha ▶</button>
+</div>
+
+<script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const scoreElement = document.getElementById('score');
+    const gameOverScreen = document.getElementById('game-over-screen');
+    const goTitle = document.getElementById('go-title');
+    const goMsg = document.getElementById('go-msg');
+    const startBtn = document.getElementById('start-btn');
+    const playerNameInput = document.getElementById('player-name');
+    const highScoresDiv = document.getElementById('high-scores');
+
+    let score = 0;
+    let gameActive = false;
+    let player = { x: 175, y: 490, width: 50, height: 80, speed: 7 };
+    let items = [];
+    let gameLoopId;
+    let spawnTimer = 0;
+    let currentUserName = "Amigo";
+
+    const types = [
+        { text: '💡', type: 'good', score: 10 },  // Luminaria
+        { text: '📜', type: 'good', score: 15 },  // Propuesta
+        { text: '🚧', type: 'good', score: 20 },  // Bache reparado
+        { text: '❌', type: 'bad', score: -1 }    // Obstáculo
+    ];
+
+    // Cargar récords guardados en el navegador de forma segura
+    let highScores = [];
+    try {
+        const savedScores = localStorage.getItem('pacoBravoScores');
+        if (savedScores) {
+            highScores = JSON.parse(savedScores);
+        }
+    } catch(e) {
+        highScores = [];
+    }
+
+    function updateLeaderboardDisplay() {
+        if (!highScores || highScores.length === 0) {
+            highScoresDiv.innerHTML = "Sin registros aún. ¡Sé el primero!";
+            return;
+        }
+        let html = "<ul style='padding-left: 15px; margin: 2px 0;'>";
+        highScores.forEach((entry, index) => {
+            html += `<li>${index + 1}. ${entry.name}: <strong>${entry.score} pts</strong></li>`;
+        });
+        html += "</ul>";
+        highScoresDiv.innerHTML = html;
+    }
+
+    function saveScore() {
+        if (score <= 0) return; // No guardar puntajes vacíos
+        highScores.push({ name: currentUserName, score: score });
+        highScores.sort((a, b) => b.score - a.score);
+        highScores = highScores.slice(0, 5); // Mantener el Top 5
+        try {
+            localStorage.setItem('pacoBravoScores', JSON.stringify(highScores));
+        } catch(e) {
+            console.error("No se pudo guardar en localStorage", e);
+        }
+        updateLeaderboardDisplay();
+    }
+
+    function startGame() {
+        const nameVal = playerNameInput.value.trim();
+        currentUserName = nameVal !== "" ? nameVal : "Ciudadano";
+        
+        score = 0;
+        items = [];
+        player.x = 175;
+        scoreElement.innerText = score;
+        gameOverScreen.style.display = 'none';
+        gameActive = true;
+        
+        // Cancelar animación previa si existiera para evitar duplicados
+        if (gameLoopId) cancelAnimationFrame(gameLoopId);
+        animate();
+    }
+
+    // Vincular correctamente el evento del botón de inicio mediante JavaScript puro
+    startBtn.addEventListener('click', startGame);
+    playerNameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            startGame();
+        }
+    });
+
+    function gameOver(reason) {
+        gameActive = false;
+        if (gameLoopId) cancelAnimationFrame(gameLoopId);
+        
+        saveScore();
+        
+        goTitle.innerText = "¡Juego Terminado!";
+        if(reason === 'missed') {
+            goMsg.innerHTML = `¡Se te fue una propuesta sin atrapar!<br><strong>${currentUserName}</strong>, lograste <strong>${score} puntos</strong>.<br><br>¡Inténtalo de nuevo y apoya a Paco Bravo!`;
+        } else {
+            goMsg.innerHTML = `Te topaste con un obstáculo.<br><strong>${currentUserName}</strong>, lograste <strong>${score} puntos</strong>.<br><br>¡Inténtalo de nuevo!`;
+        }
+        startBtn.innerText = "Jugar de nuevo";
+        gameOverScreen.style.display = 'flex';
+    }
+
+    function spawnItem() {
+        const randomType = types[Math.floor(Math.random() * types.length)];
+        items.push({
+            x: Math.random() * (canvas.width - 30),
+            y: -30,
+            size: 30,
+            speed: 3 + Math.random() * 2.5,
+            ...randomType
+        });
+    }
+
+    function drawPacoCaricature(x, y) {
+        // Cabello oscuro de Paco Bravo
+        ctx.fillStyle = '#1A1A1A';
+        ctx.beginPath();
+        ctx.arc(x + 25, y + 18, 18, Math.PI, 0, false);
+        ctx.fill();
+
+        // Rostro
+        ctx.fillStyle = '#F5D0B1';
+        ctx.beginPath();
+        ctx.arc(x + 25, y + 22, 14, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ojos y sonrisa
+        ctx.fillStyle = '#000';
+        ctx.fillRect(x + 20, y + 18, 3, 3);
+        ctx.fillRect(x + 28, y + 18, 3, 3);
+        ctx.beginPath();
+        ctx.arc(x + 25, y + 25, 5, 0, Math.PI, false);
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Playera azul clara representativa
+        ctx.fillStyle = '#63B3ED';
+        ctx.fillRect(x + 10, y + 36, 30, 30);
+        ctx.fillStyle = '#2B6CB0';
+        ctx.beginPath();
+        ctx.moveTo(x + 25, y + 36);
+        ctx.lineTo(x + 21, y + 44);
+        ctx.lineTo(x + 29, y + 44);
+        ctx.fill();
+
+        // Pantalón
+        ctx.fillStyle = '#2D3748';
+        ctx.fillRect(x + 12, y + 66, 26, 14);
+    }
+
+    function animate() {
+        if (!gameActive) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Calle ambiental
+        ctx.fillStyle = "rgba(255,255,255,0.1)";
+        ctx.fillRect(195, 0, 10, canvas.height);
+
+        // Dibujar al Regidor
+        drawPacoCaricature(player.x, player.y);
+
+        // Generar elementos
+        spawnTimer++;
+        if (spawnTimer % 50 === 0) spawnItem();
+
+        for (let i = items.length - 1; i >= 0; i--) {
+            let item = items[i];
+            item.y += item.speed;
+
+            // Dibujar objeto que cae
+            ctx.font = "26px Arial";
+            ctx.fillText(item.text, item.x, item.y);
+
+            // Detección de colisión con el jugador
+            if (item.x < player.x + player.width &&
+                item.x + item.size > player.x &&
+                item.y < player.y + player.height &&
+                item.y + item.size > player.y) {
+                
+                if (item.type === 'good') {
+                    score += item.score;
+                    scoreElement.innerText = score;
+                } else {
+                    gameOver('obstacle');
+                    return;
+                }
+                items.splice(i, 1);
+                continue;
+            }
+
+            // Si una propuesta buena pasa del canvas sin atraparla -> Game Over
+            if (item.y > canvas.height) {
+                if (item.type === 'good') {
+                    gameOver('missed');
+                    return;
+                } else {
+                    items.splice(i, 1);
+                }
+            }
+        }
+
+        gameLoopId = requestAnimationFrame(animate);
+    }
+
+    // Controles de teclado
+    const keys = {};
+    window.addEventListener('keydown', e => {
+        if(['ArrowLeft', 'ArrowRight'].includes(e.code)) {
+            keys[e.code] = true;
+        }
+    });
+    window.addEventListener('keyup', e => {
+        if(['ArrowLeft', 'ArrowRight'].includes(e.code)) {
+            keys[e.code] = false;
+        }
+    });
+
+    function handleInput() {
+        if (keys['ArrowLeft'] && player.x > 0) player.x -= player.speed;
+        if (keys['ArrowRight'] && player.x < canvas.width - player.width) player.x += player.speed;
+    }
+
+    // Controles táctiles y mouse para móviles
+    const leftBtn = document.getElementById('left-btn');
+    const rightBtn = document.getElementById('right-btn');
+
+    let leftInterval, rightInterval;
+    leftBtn.addEventListener('touchstart', (e) => { e.preventDefault(); leftInterval = setInterval(() => { if(player.x > 0) player.x -= player.speed; }, 20); });
+    leftBtn.addEventListener('touchend', () => clearInterval(leftInterval));
+    leftBtn.addEventListener('mousedown', () => { leftInterval = setInterval(() => { if(player.x > 0) player.x -= player.speed; }, 20); });
+    leftBtn.addEventListener('mouseup', () => clearInterval(leftInterval));
+
+    rightBtn.addEventListener('touchstart', (e) => { e.preventDefault(); rightInterval = setInterval(() => { if(player.x < canvas.width - player.width) player.x += player.speed; }, 20); });
+    rightBtn.addEventListener('touchend', () => clearInterval(rightInterval));
+    rightBtn.addEventListener('mousedown', () => { rightInterval = setInterval(() => { if(player.x < canvas.width - player.width) player.x += player.speed; }, 20); });
+    rightBtn.addEventListener('mouseup', () => clearInterval(rightInterval));
+
+    setInterval(handleInput, 1000/60);
+    updateLeaderboardDisplay();
+</script>
+
+</body>
+</html>
